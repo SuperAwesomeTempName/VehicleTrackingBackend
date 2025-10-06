@@ -1,0 +1,66 @@
+package handlers
+
+import (
+	"context"
+	"net/http"
+	"time"
+
+	"github.com/SuperAwesomeTempName/VehicleTrackingBackend/internal/auth"
+	"github.com/SuperAwesomeTempName/VehicleTrackingBackend/internal/db"
+	"github.com/google/uuid"
+	"github.com/labstack/echo/v4"
+)
+
+type RegisterRequest struct {
+	Name     string `json:"name" validate:"required,min=2"`
+	Email    string `json:"email" validate:"required,email"`
+	Password string `json:"password" validate:"required,min=8"`
+}
+
+type LoginRequest struct {
+	Email    string `json:"email" validate:"required,email"`
+	Password string `json:"password" validate:"required"`
+}
+
+// Register handler
+func RegisterHandler(c echo.Context) error {
+	var req RegisterRequest
+	if err := c.Bind(&req); err != nil {
+		return c.JSON(http.StatusBadRequest, map[string]string{"error": "invalid body"})
+	}
+	if err := c.Validate(&req); err != nil {
+		return c.JSON(http.StatusBadRequest, map[string]string{"error": err.Error()})
+	}
+	// Hash password
+	hash, err := auth.HashPassword(req.Password)
+	if err != nil { return c.JSON(http.StatusInternalServerError, map[string]string{"error": "hash failed"}) }
+
+	// Create user in DB
+	id := uuid.New().String()
+	if err := db.InsertUser(c.Request().Context(), id, req.Name, req.Email, hash); err != nil {
+		// handle unique email error
+		return c.JSON(http.StatusInternalServerError, map[string]string{"error": "db error"})
+	}
+	return c.JSON(http.StatusCreated, map[string]string{"id": id, "email": req.Email})
+}
+
+func LoginHandler(jwtMgr *auth.JWTManager) echo.HandlerFunc {
+	return func(c echo.Context) error {
+		var req LoginRequest
+		if err := c.Bind(&req); err != nil {
+			return c.JSON(http.StatusBadRequest, map[string]string{"error": "invalid body"})
+		}
+		if err := c.Validate(&req); err != nil { return c.JSON(http.StatusBadRequest, map[string]string{"error": err.Error()}) }
+
+		user, err := db.FindUserByEmail(c.Request().Context(), req.Email)
+		if err != nil { return c.JSON(http.StatusUnauthorized, map[string]string{"error": "invalid credentials"}) }
+
+		ok, _ := auth.ComparePassword(user.PasswordHash, req.Password)
+		if !ok { return c.JSON(http.StatusUnauthorized, map[string]string{"error": "invalid credentials"}) }
+
+		token, err := jwtMgr.Generate(user.ID, user.Role)
+		if err != nil { return c.JSON(http.StatusInternalServerError, map[string]string{"error": "token generation failed"}) }
+
+		return c.JSON(http.StatusOK, map[string]interface{}{"access_token": token, "token_type": "Bearer", "expires_in": int(jwtMgr.ttl.Seconds())})
+	}
+}

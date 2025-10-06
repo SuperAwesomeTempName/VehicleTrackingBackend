@@ -1,0 +1,6 @@
+DROP TABLE IF EXISTS buses;
+DROP TABLE IF EXISTS stops;
+DROP TABLE IF EXISTS routes;
+
+
+
