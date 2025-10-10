@@ -19,3 +19,7 @@ data/*
 
 # Dep
 vendor/*
+
+# Secrets directory: ignore files but keep folder
+secrets/*
+!secrets/.gitkeep

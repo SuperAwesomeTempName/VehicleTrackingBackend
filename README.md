@@ -30,10 +30,45 @@ JWT keys are read from files inside the container:
 - `JWT_PRIVATE_KEY_PATH=/app/secrets/jwt_priv.pem`
 - `JWT_PUBLIC_KEY_PATH=/app/secrets/jwt_pub.pem`
 
-Generate keys locally into `./secrets`:
+#### Generate RSA keys for JWT
 
-```powershell
-make gen-jwt-keys
+You can generate a 2048-bit RSA keypair in `./secrets` using either the Makefile target or OpenSSL directly.
+
+- Using Makefile (recommended):
+
+  ```powershell
+  make gen-jwt-keys
+  ```
+
+- Using OpenSSL (Windows PowerShell, macOS, or Linux):
+
+  1) Create the secrets directory
+
+  ```powershell
+  mkdir secrets -Force
+  ```
+
+  2) Generate private key (2048-bit) and public key
+
+  ```bash
+  # Private key
+  openssl genpkey -algorithm RSA -out secrets/jwt_priv.pem -pkeyopt rsa_keygen_bits:2048
+  # Public key
+  openssl rsa -in secrets/jwt_priv.pem -pubout -out secrets/jwt_pub.pem
+  ```
+
+  3) (macOS/Linux) Restrict permissions
+
+  ```bash
+  chmod 600 secrets/jwt_priv.pem
+  chmod 644 secrets/jwt_pub.pem
+  ```
+
+Set the following environment variables (already configured in Compose) to point to these files:
+
+```env
+JWT_PRIVATE_KEY_PATH=./secrets/jwt_priv.pem
+JWT_PUBLIC_KEY_PATH=./secrets/jwt_pub.pem
 ```
 
 Compose will mount `./secrets` into the container at `/app/secrets`.
