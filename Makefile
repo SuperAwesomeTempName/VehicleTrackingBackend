@@ -52,3 +52,9 @@ up-build:		## docker-compose up --build
 
 down:			## docker-compose down
 	docker-compose down
+
+# ==================================================================================== #
+# UTILITIES
+# ==================================================================================== #
+gen-jwt-keys:	## generate RSA keys for JWT into ./secrets
+	go run ./tools/jwtkeys -out ./secrets -bits 2048

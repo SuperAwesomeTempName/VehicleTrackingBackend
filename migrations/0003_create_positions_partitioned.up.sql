@@ -1,6 +1,6 @@
 -- Parent table for time partitioning
 CREATE TABLE IF NOT EXISTS positions (
-  id bigserial PRIMARY KEY,
+  id bigserial,
   bus_id uuid NOT NULL REFERENCES buses(id),
   route_id uuid,
   ts timestamptz NOT NULL,
@@ -8,7 +8,8 @@ CREATE TABLE IF NOT EXISTS positions (
   heading double precision,
   geom geometry(Point,4326) NOT NULL,
   raw jsonb,
-  created_at timestamptz DEFAULT now()
+  created_at timestamptz DEFAULT now(),
+  PRIMARY KEY (id, ts)
 ) PARTITION BY RANGE (ts);
 
 -- Function to create monthly partitions 
@@ -27,6 +28,8 @@ $$ LANGUAGE plpgsql;
 SELECT create_positions_partition(EXTRACT(YEAR FROM now())::int, EXTRACT(MONTH FROM now())::int);
 
 CREATE INDEX IF NOT EXISTS idx_positions_bus_ts ON positions (bus_id, ts DESC);
+
+
 
 
 

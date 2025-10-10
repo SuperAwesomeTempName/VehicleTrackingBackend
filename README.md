@@ -1,110 +1,274 @@
-# VehicleTrackingBackend
+## VehicleTrackingBackend
 
-A simple, clean Go boilerplate for building REST APIs with Gin framework.
+A lightweight Go backend for vehicle tracking, built with `gin`, Redis, and Postgres. Features JWT auth with refresh tokens, WebSocket broadcast, rate limiting, health checks, and Prometheus metrics.
 
-## Features
+### Features
+- Simple, structured Go service (Gin + Zap)
+- JWT auth with refresh tokens (Argon2id password hashing)
+- Redis-backed ingest and GEO storage, WebSocket notifications
+- Health/readiness endpoints and `/metrics`
+- Docker/Docker Compose ready
 
-- 🚀 **Simple & Clean**: Minimal boilerplate code
-- 🏗️ **Well Structured**: Clean architecture with separation of concerns
-- ⚡ **Fast**: Built with Gin framework
-- 📝 **Configurable**: Environment-based configuration with Viper
-- 🔍 **Logging**: Structured logging with Zap
-- 🏥 **Health Checks**: Built-in health and readiness endpoints
-- 🐳 **Docker Ready**: Dockerfile and docker-compose included
+---
 
-## Project Structure
+## Run the backend
 
+### 1) Prerequisites
+- Docker and Docker Compose
+- Windows PowerShell or a POSIX shell
+
+### 2) Environment
+Create `.env` in project root or export env vars. Required variables for Compose are already referenced in `docker-compose.yaml`:
+
+```env
+DATABASE_USER=transport
+DATABASE_PASSWORD=transport123
+DATABASE_NAME=vehicletracking
 ```
-.
-├── main.go                 # Application entry point
-├── internal/
-│   ├── config/            # Configuration management
-│   ├── server/            # HTTP server setup
-│   └── handlers/          # HTTP request handlers
-├── docker-compose.yaml    # Docker services configuration
-├── Dockerfile            # Docker build configuration
-├── Makefile             # Build and development commands
-└── README.md           # This file
+
+JWT keys are read from files inside the container:
+- `JWT_PRIVATE_KEY_PATH=/app/secrets/jwt_priv.pem`
+- `JWT_PUBLIC_KEY_PATH=/app/secrets/jwt_pub.pem`
+
+Generate keys locally into `./secrets`:
+
+```powershell
+make gen-jwt-keys
 ```
 
-## Quick Start
+Compose will mount `./secrets` into the container at `/app/secrets`.
 
-### Using Docker (Recommended)
+### 3) Start services
 
-1. Clone the repository:
+```powershell
+docker compose up -d --build
+```
+
+App listens on `http://localhost:8080`.
+
+### 4) Database migrations
+If you haven’t run the refresh token migration yet, apply it like this (PowerShell):
+
+```powershell
+# Enable pgcrypto (for gen_random_uuid)
+echo "CREATE EXTENSION IF NOT EXISTS pgcrypto;" | docker compose exec -T postgres psql -U transport -d vehicletracking -f -
+
+# Apply migration 0005 (creates refresh_tokens)
+type .\migrations\0005_refresh_tokens.up.sql | docker compose exec -T postgres psql -U transport -d vehicletracking -f -
+```
+
+### 5) Local (without Docker)
+Run Postgres and Redis locally, then:
+
+```powershell
+$env:DATABASE_DSN = "postgres://transport:transport123@localhost:5432/vehicletracking?sslmode=disable"
+$env:REDIS_ADDR = "localhost:6379"
+$env:JWT_PRIVATE_KEY_PATH = ".\secrets\jwt_priv.pem"
+$env:JWT_PUBLIC_KEY_PATH  = ".\secrets\jwt_pub.pem"
+go run .
+```
+
+---
+
+## API Reference
+
+Base URL: `http://localhost:8080`
+
+### Health
+- GET `/health/live`
+  - 200: `{ "status": "ok", "service": "VehicleTrackingBackend" }`
+
+- GET `/health/ready`
+  - 200: `{ "status": "ready" }`
+  - 503 when DB or Redis is unavailable
+
+### Metrics
+- GET `/metrics` (Prometheus exposition format)
+
+### WebSocket
+- GET `/ws`
+  - Upgrades to a WS connection that receives light vehicle events published to Redis channels `vehicle:<busId>`.
+
+### Auth
+Routes: `/auth` (enabled when `JWT_PRIVATE_KEY_PATH` and `JWT_PUBLIC_KEY_PATH` are set)
+
+- POST `/auth/register`
+  - Request
+    ```json
+    { "name": "John Doe", "email": "john@example.com", "password": "P@ssw0rd!" }
+    ```
+  - Responses
+    - 201: `{ "id": "<uuid>", "email": "john@example.com" }`
+    - 400: `{ "error": "..." }`
+
+- POST `/auth/login`
+  - Request
+    ```json
+    { "email": "john@example.com", "password": "P@ssw0rd!" }
+    ```
+  - Responses
+    - 200:
+      ```json
+      {
+        "access_token": "<jwt>",
+        "refresh_token": "<opaque-string>",
+        "token_type": "Bearer",
+        "expires_in": 900
+      }
+      ```
+    - 401/503: `{ "error": "..." }`
+
+- POST `/auth/refresh`
+  - Request
+    ```json
+    { "refresh_token": "<opaque-string>" }
+    ```
+  - Responses
+    - 200:
+      ```json
+      {
+        "access_token": "<jwt>",
+        "refresh_token": "<new-opaque-string>",
+        "token_type": "Bearer",
+        "expires_in": 900
+      }
+      ```
+    - 401/500: `{ "error": "..." }`
+
+- POST `/auth/logout`
+  - Request
+    ```json
+    { "refresh_token": "<opaque-string>" }
+    ```
+  - Responses
+    - 200: `{ "status": "ok" }`
+    - 400/500: `{ "error": "..." }`
+
+### API v1
+Routes: `/api/v1` (rate limited)
+
+- GET `/api/v1/ping`
+  - 200: `{ "message": "pong" }`
+
+- GET `/api/v1/version`
+  - 200: `{ "version": "1.0.0", "service": "VehicleTrackingBackend" }`
+
+- POST `/api/v1/locations`
+  - Request
+    ```json
+    {
+      "busId": "0b2b3646-1f6e-4fe1-b300-91a8b6a7f7d9",
+      "latitude": 12.9716,
+      "longitude": 77.5946,
+      "timestamp": 1719930000,
+      "speedKph": 32.5,
+      "heading": 145
+    }
+    ```
+    - Constraints: `latitude [-90,90]`, `longitude [-180,180]`, `timestamp` not more than 5 minutes in the future.
+  - Responses
+    - 204 No Content
+    - 400/500: `{ "error": "..." }`
+
+---
+
+## cURL Quickstart
+
 ```bash
-git clone https://github.com/SuperAwesomeTempName/VehicleTrackingBackend.git
-cd VehicleTrackingBackend
+# Register
+curl -sS http://localhost:8080/auth/register \
+  -H 'Content-Type: application/json' \
+  -d '{"name":"John","email":"john@example.com","password":"P@ssw0rd!"}'
+
+# Login
+curl -sS http://localhost:8080/auth/login \
+  -H 'Content-Type: application/json' \
+  -d '{"email":"john@example.com","password":"P@ssw0rd!"}'
+
+# Refresh
+curl -sS http://localhost:8080/auth/refresh \
+  -H 'Content-Type: application/json' \
+  -d '{"refresh_token":"<opaque>"}'
+
+# Post a location
+curl -sS http://localhost:8080/api/v1/locations \
+  -H 'Content-Type: application/json' \
+  -d '{"busId":"<uuid>","latitude":12.9,"longitude":77.5,"timestamp":1719930000}' -i
 ```
 
-2. Start the application:
+---
+
+## Test WebSocket + Redis end-to-end
+
+### 1) Connect to WebSocket stream
+- Using Node (no install):
+```powershell
+npx wscat -c ws://localhost:8080/ws
+```
+
+- Or using websocat (if installed):
 ```bash
-docker-compose up --build
+websocat ws://localhost:8080/ws
 ```
 
-The server will be available at `http://localhost:8080`
+### 2) Trigger an event via HTTP (recommended)
+Posting to `/api/v1/locations` automatically publishes a minimal event to `vehicle:<busId>` which the WS will forward:
 
-### Local Development
-
-1. Install Go 1.21 or later
-
-2. Install dependencies:
-```bash
-go mod download
+```powershell
+curl -sS http://localhost:8080/api/v1/locations \
+  -H 'Content-Type: application/json' \
+  -d '{"busId":"BUS-123","latitude":12.9716,"longitude":77.5946,"timestamp":1719930000,"speedKph":32.5,"heading":145}' -i
 ```
 
-3. Run the application:
-```bash
-go run main.go
+You should see a JSON message on the WS client.
+
+### 3) Trigger an event directly via Redis (manual publish)
+You can publish a custom JSON message to the channel pattern subscribed by the broker (`vehicle:*`):
+
+```powershell
+docker compose exec -T redis redis-cli \
+  PUBLISH vehicle:BUS-123 '{"msgId":"test-1","busId":"BUS-123","lat":12.9716,"lon":77.5946,"ts":1719930000}'
 ```
 
-## API Endpoints
+### 4) Optional: write raw data structures in Redis (bypassing HTTP)
+The service also writes to these keys when you POST `/api/v1/locations`. You can emulate them manually for testing:
 
-### Health Checks
-- `GET /health` - Basic health check
-- `GET /health/ready` - Readiness probe
+```powershell
+# Append to positions stream
+docker compose exec -T redis redis-cli XADD stream:positions * \
+  msgId test-2 busId BUS-123 lat 12.9716 lon 77.5946 ts 1719930000 speed 30 heading 145
 
-### API
-- `GET /api/v1/ping` - Simple ping endpoint
-- `GET /api/v1/version` - Get API version
+# Update GEO set and last-known hash
+docker compose exec -T redis redis-cli GEOADD live:vehicles 77.5946 12.9716 BUS-123
+docker compose exec -T redis redis-cli HSET vehicle:BUS-123:last lat 12.9716 lon 77.5946 ts 1719930000 speed 30
+
+# Publish a lightweight WS event
+docker compose exec -T redis redis-cli PUBLISH vehicle:BUS-123 '{"msgId":"test-3","busId":"BUS-123","lat":12.9716,"lon":77.5946,"ts":1719930000}'
+```
+
+---
 
 ## Configuration
 
-The application can be configured using environment variables or a config file.
+Configuration is loaded from environment variables via Viper or `.env` under Docker:
+- `SERVER_HOST` (default `0.0.0.0`)
+- `SERVER_PORT` (default `8080`)
+- `LOG_LEVEL` (default `info`)
+- `REDIS_ADDR` (default `localhost:6379` when not in Docker)
+- `DATABASE_DSN` (if not set, built from config struct)
+- `JWT_PRIVATE_KEY_PATH`, `JWT_PUBLIC_KEY_PATH` (required for auth routes)
 
-### Environment Variables
-- `SERVER_HOST` - Server host (default: "0.0.0.0")
-- `SERVER_PORT` - Server port (default: "8080")
-- `LOG_LEVEL` - Log level (default: "info")
+---
 
 ## Development
 
-### Available Make Commands
-
+Common commands:
 ```bash
-make build          # Build the application
-make run             # Run the application locally
-make test            # Run tests
-make clean           # Clean build artifacts
-make up              # Start with docker-compose
-make down            # Stop docker-compose services
+make run       # go run main.go
+make build     # build into ./bin/api
+make up        # docker compose up -d
+make down      # docker compose down
 ```
 
-### Adding New Features
+Project entrypoint: `main.go`. Routes are registered in `internal/server/server.go`.
 
-1. **Add new handlers** in `internal/handlers/`
-2. **Register routes** in `internal/server/server.go`
-3. **Add configuration** in `internal/config/config.go`
-4. **Update dependencies** in `go.mod`
-
-## Contributing
-
-1. Fork the repository
-2. Create your feature branch (`git checkout -b feature/amazing-feature`)
-3. Commit your changes (`git commit -m 'Add some amazing feature'`)
-4. Push to the branch (`git push origin feature/amazing-feature`)
-5. Open a Pull Request
-
-## License
-
-This project is licensed under the MIT License.

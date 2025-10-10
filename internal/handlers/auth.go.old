@@ -69,6 +69,6 @@ func LoginHandler(jwtMgr *auth.JWTManager) echo.HandlerFunc {
 			return c.JSON(http.StatusInternalServerError, map[string]string{"error": "token generation failed"})
 		}
 
-		return c.JSON(http.StatusOK, map[string]interface{}{"access_token": token, "token_type": "Bearer", "expires_in": int(jwtMgr.TTL().Seconds())})
+		return c.JSON(http.StatusOK, map[string]interface{}{"access_token": token, "token_type": "Bearer", "expires_in": int(jwtMgr.ttl.Seconds())})
 	}
 }

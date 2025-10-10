@@ -1,4 +1,4 @@
-package redis
+package redisclient
 
 import (
 	"context"
@@ -52,4 +52,10 @@ func (c *Client) HSet(ctx context.Context, key string, values map[string]interfa
 
 func (c *Client) Publish(ctx context.Context, channel string, msg interface{}) error {
 	return c.rdb.Publish(ctx, channel, msg).Err()
+}
+
+// RDB exposes the underlying go-redis client for advanced operations
+// that are not wrapped by this lightweight facade.
+func (c *Client) RDB() *redis.Client {
+	return c.rdb
 }

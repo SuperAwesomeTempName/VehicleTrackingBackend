@@ -6,8 +6,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/gorilla/websocket"
 	redisclient "github.com/SuperAwesomeTempName/VehicleTrackingBackend/internal/redis"
+	"github.com/gorilla/websocket"
 )
 
 type Client struct {
@@ -16,19 +16,19 @@ type Client struct {
 }
 
 type Broker struct {
-	clients   map[*Client]struct{}
-	register  chan *Client
+	clients    map[*Client]struct{}
+	register   chan *Client
 	unregister chan *Client
-	redis     *redisclient.Client
-	mu        sync.Mutex
+	redis      *redisclient.Client
+	mu         sync.Mutex
 }
 
 func NewBroker(r *redisclient.Client) *Broker {
 	b := &Broker{
-		clients: make(map[*Client]struct{}),
-		register: make(chan *Client),
+		clients:    make(map[*Client]struct{}),
+		register:   make(chan *Client),
 		unregister: make(chan *Client),
-		redis: r,
+		redis:      r,
 	}
 	go b.run()
 	go b.subscribeRedis(context.Background())
@@ -55,7 +55,7 @@ func (b *Broker) run() {
 }
 
 func (b *Broker) subscribeRedis(ctx context.Context) {
-	sub := b.redis.rdb.Subscribe(ctx, "vehicle:*") // pattern not supported by go-redis Subscribe - use PubSub.PSubscribe in real code
+	sub := b.redis.RDB().PSubscribe(ctx, "vehicle:*")
 	ch := sub.Channel()
 	for msg := range ch {
 		b.broadcast([]byte(msg.Payload))
@@ -81,7 +81,9 @@ var upgrader = websocket.Upgrader{
 
 func (b *Broker) ServeWS(w http.ResponseWriter, r *http.Request) {
 	conn, err := upgrader.Upgrade(w, r, nil)
-	if err != nil { return }
+	if err != nil {
+		return
+	}
 	client := &Client{conn: conn, send: make(chan []byte, 256)}
 	b.register <- client
 
@@ -110,12 +112,18 @@ func (b *Broker) ServeWS(w http.ResponseWriter, r *http.Request) {
 					return
 				}
 				w, err := client.conn.NextWriter(websocket.TextMessage)
-				if err != nil { return }
+				if err != nil {
+					return
+				}
 				w.Write(msg)
-				if err := w.Close(); err != nil { return }
+				if err := w.Close(); err != nil {
+					return
+				}
 			case <-ticker.C:
 				client.conn.SetWriteDeadline(time.Now().Add(10 * time.Second))
-				if err := client.conn.WriteMessage(websocket.PingMessage, nil); err != nil { return }
+				if err := client.conn.WriteMessage(websocket.PingMessage, nil); err != nil {
+					return
+				}
 			}
 		}
 	}()

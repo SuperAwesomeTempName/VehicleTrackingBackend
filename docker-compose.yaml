@@ -1,15 +1,22 @@
-version: "3.9"
 services:
   app:
     build: .
     env_file:
       - .env
+    environment:
+      - JWT_PRIVATE_KEY_PATH=/app/secrets/jwt_priv.pem
+      - JWT_PUBLIC_KEY_PATH=/app/secrets/jwt_pub.pem
+      - REDIS_ADDR=redis:6379
+      - DATABASE_DSN=postgres://${DATABASE_USER}:${DATABASE_PASSWORD}@postgres:5432/${DATABASE_NAME}?sslmode=disable
     ports:
       - "8080:8080"
     depends_on:
       - postgres
       - redis
     restart: unless-stopped
+    volumes:
+      - ./secrets:/app/secrets
+    user: "0:0"
 
   postgres:
     image: postgis/postgis:15-3.3

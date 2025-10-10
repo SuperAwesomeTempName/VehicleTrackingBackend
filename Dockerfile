@@ -34,6 +34,9 @@ WORKDIR /root/
 # Copy the binary from builder stage
 COPY --from=builder /app/main .
 
+# Create secrets directory
+RUN mkdir -p /app/secrets && chown appuser:appgroup /app/secrets
+
 # Change ownership to non-root user
 RUN chown -R appuser:appgroup /root/
 

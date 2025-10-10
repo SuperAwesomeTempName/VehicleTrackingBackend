@@ -10,10 +10,10 @@ import (
 )
 
 type Loc struct {
-	BusID    string  `json:"busId"`
-	Latitude float64 `json:"latitude"`
+	BusID     string  `json:"busId"`
+	Latitude  float64 `json:"latitude"`
 	Longitude float64 `json:"longitude"`
-	Timestamp int64  `json:"timestamp"`
+	Timestamp int64   `json:"timestamp"`
 	SpeedKph  float64 `json:"speedKph"`
 	Heading   float64 `json:"heading"`
 }
